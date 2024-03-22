@@ -1,0 +1,70 @@
+
+Transform: AWS::Serverless-2016-10-31
+Description: Sam Demo template for creating SQS, Lambda and S3
+Resources:
+  SamDemoSourceQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 345600
+  MessageProcessor:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: MessageProcessor
+      CodeUri: .
+      Handler: SAM-SQS-Lambda-S3::SAM_SQS_Lambda_S3.Function::FunctionHandler
+      Runtime: dotnet8
+      MemorySize: 512
+      Timeout: 30
+      Tracing: Active
+      Events:
+        SamDemoSourceQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SamDemoSourceQueue.Arn
+            BatchSize: 1
+      Environment:
+        Variables:
+          BucketName: !Ref SamDemoBucket
+          SourceSQSURL: !Ref SamDemoSourceQueue
+      Policies:
+        - S3WritePolicy: 
+            BucketName: !Ref SamDemoBucket
+      Architectures:
+        - arm64
+  MessageProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${MessageProcessor}
+  SamDemoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-samdemobu-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: alias/aws/s3
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  SamDemoBucketBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SamDemoBucket
+      PolicyDocument:
+        Id: RequireEncryptionInTransit
+        Version: '2012-10-17'
+        Statement:
+          - Principal: '*'
+            Action: '*'
+            Effect: Deny
+            Resource:
+              - !GetAtt SamDemoBucket.Arn
+              - !Sub ${SamDemoBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
